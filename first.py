@@ -1,3 +1,4 @@
+import streamlit as st
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -9,87 +10,70 @@ from langchain_core.documents import Document
 from huggingface_hub import login
 from pdf2image import convert_from_path
 import pytesseract
+import tempfile
 import os
 
-
-# === 0. Authenticate ===
-# Hugging Face token
+# === Set API Keys ===
 HUGGINGFACE_TOKEN = "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"
+GOOGLE_API_KEY = "AIzaSyDTzrCQwzk61mJyuq8WNOwFuhKbJhpm73Y"
 os.environ["HUGGINGFACEHUB_API_TOKEN"] = HUGGINGFACE_TOKEN
+os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
 login(HUGGINGFACE_TOKEN)
 
-# Google API Key
-GOOGLE_API_KEY = "AIzaSyDTzrCQwzk61mJyuq8WNOwFuhKbJhpm73Y"
-os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY  # Optional but clean
+poppler_path = r"D:\\practice\\Release-24.08.0-0\\poppler-24.08.0\\Library\\bin"  # Change to your actual path
 
 
-# === 1. Load and Split PDF ===
+# === PDF Loader with OCR ===
 def load_and_split_pdf(pdf_path):
-    poppler_path = r"D:\\practice\\Release-24.08.0-0\\poppler-24.08.0\\Library\\bin"
-    print("🔍 Extracting text with PyPDFLoader...")
     loader = PyPDFLoader(pdf_path)
     raw_docs = loader.load()
-
-    print("🔍 Running OCR on empty pages (if any)...")
     images = convert_from_path(pdf_path, poppler_path=poppler_path)
 
     for i, page in enumerate(images):
         if i < len(raw_docs):
             if not raw_docs[i].page_content.strip():
                 ocr_text = pytesseract.image_to_string(page)
-                raw_docs[i] = Document(page_content=ocr_text, metadata={"source": pdf_path, "page": i + 1})
+                raw_docs[i] = Document(page_content=ocr_text, metadata={"page": i + 1})
         else:
             ocr_text = pytesseract.image_to_string(page)
-            raw_docs.append(Document(page_content=ocr_text, metadata={"source": pdf_path, "page": i + 1}))
+            raw_docs.append(Document(page_content=ocr_text, metadata={"page": i + 1}))
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
     return splitter.split_documents(raw_docs)
 
 
-# === 2. Create Vector Store ===
-def create_chroma_vectorstore(docs, persist_directory="chroma_db"):
+# === Vector DB and Chain Setup ===
+def create_vectorstore(docs):
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    vectordb = Chroma.from_documents(
-        documents=docs,
-        embedding=embeddings,
-        persist_directory=persist_directory
-    )
-    vectordb.persist()
-    return vectordb
+    return Chroma.from_documents(documents=docs, embedding=embeddings)
 
+def load_llm():
+    return GoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=GOOGLE_API_KEY)
 
-# === 3. Load LLM (Gemini) ===
-def load_llm(model_name="models/text-bison-001"):
-    return GoogleGenerativeAI(
-        model=model_name,
-        google_api_key=GOOGLE_API_KEY,
-        temperature=0.3
-    )
-
-
-# === 4. Create QA Chain ===
 def create_qa_chain(llm, vectordb):
     retriever = vectordb.as_retriever(search_kwargs={"k": 3})
     return RetrievalQA.from_chain_type(llm=llm, retriever=retriever, chain_type="stuff")
 
 
-# === 5. Chat Loop ===
-def chat(qa_chain):
-    print("✅ Ready! Ask your questions about the PDF. Type 'exit' to quit.")
-    while True:
-        query = input("You: ")
-        if query.lower() in ["exit", "quit"]:
-            print("👋 Exiting.")
-            break
-        response = qa_chain.invoke({"query": query})["result"]
-        print(f"Bot: {response}")
+# === Streamlit App ===
+st.title("📄 Chat with Your PDF")
 
+uploaded_file = st.file_uploader("Upload a PDF", type=["pdf"])
 
-# === Main ===
-if __name__ == "__main__":
-    pdf_path = "D:\\practice\\file.pdf"
-    docs = load_and_split_pdf(pdf_path)
-    vectordb = create_chroma_vectorstore(docs)
-    llm = load_llm(model_name="gemini-1.5-flash")  # You can also try: "models/chat-bison-001"
-    qa_chain = create_qa_chain(llm, vectordb)
-    chat(qa_chain)
+if uploaded_file:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+        tmp_file.write(uploaded_file.read())
+        tmp_pdf_path = tmp_file.name
+
+    with st.spinner("Processing PDF..."):
+        docs = load_and_split_pdf(tmp_pdf_path)
+        vectordb = create_vectorstore(docs)
+        llm = load_llm()
+        qa_chain = create_qa_chain(llm, vectordb)
+
+    st.success("✅ PDF Processed! Ask your questions below:")
+
+    user_query = st.text_input("Ask a question:")
+    if user_query:
+        response = qa_chain.invoke({"query": user_query})["result"]
+        st.write("🤖", response)
