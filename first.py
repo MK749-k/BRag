@@ -12,8 +12,11 @@ import pytesseract
 import os
 from dotenv import load_dotenv
 
+import tkinter as tk
+from tkinter import filedialog
 
-load_dotenv("sec.env")
+
+load_dotenv("sec.env.example")  # Load environment variables from sec.env.example
 
 # === 0. Authenticate ===
 # Hugging Face token
@@ -49,7 +52,7 @@ def load_and_split_pdf(pdf_path):
             ocr_text = pytesseract.image_to_string(page)
             raw_docs.append(Document(page_content=ocr_text, metadata={"source": pdf_path, "page": i + 1}))
 
-    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=700, chunk_overlap=30)
     return splitter.split_documents(raw_docs)
 
 
@@ -92,11 +95,26 @@ def chat(qa_chain):
         print(f"Bot: {response}")
 
 
+
+def request_pdf_file():
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+    file_path = filedialog.askopenfilename(
+        title="Select a PDF file",
+        filetypes=[("PDF Files", "*.pdf")]
+    )
+    return file_path
+
 # === Main ===
 if __name__ == "__main__":
-    pdf_path = "D:\\practice\\file.pdf"
-    docs = load_and_split_pdf(pdf_path)
-    vectordb = create_chroma_vectorstore(docs)
-    llm = load_llm(model_name="gemini-1.5-flash")  # You can also try: "models/chat-bison-001"
-    qa_chain = create_qa_chain(llm, vectordb)
-    chat(qa_chain)
+    pdf_path = request_pdf_file()
+
+    if not pdf_path:
+        print("No file was selected. Exiting.")
+    else:
+        docs = load_and_split_pdf(pdf_path)
+        vectordb = create_chroma_vectorstore(docs)
+        llm = load_llm(model_name="gemini-1.5-flash")  # You can also try: "models/chat-bison-001"
+        qa_chain = create_qa_chain(llm, vectordb)
+        chat(qa_chain)
+
