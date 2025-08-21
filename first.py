@@ -10,16 +10,23 @@ from huggingface_hub import login
 from pdf2image import convert_from_path
 import pytesseract
 import os
+from dotenv import load_dotenv
 
+
+load_dotenv("sec.env")
 
 # === 0. Authenticate ===
 # Hugging Face token
-HUGGINGFACE_TOKEN = "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"
+HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
+if not HUGGINGFACE_TOKEN:
+    raise ValueError("HUGGINGFACE_TOKEN not found in environment variables.")
 os.environ["HUGGINGFACEHUB_API_TOKEN"] = HUGGINGFACE_TOKEN
 login(HUGGINGFACE_TOKEN)
 
 # Google API Key
-GOOGLE_API_KEY = "AIzaSyDTzrCQwzk61mJyuq8WNOwFuhKbJhpm73Y"
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if not GOOGLE_API_KEY:
+    raise ValueError("GOOGLE_API_KEY not found in environment variables.")
 os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY  # Optional but clean
 
 
